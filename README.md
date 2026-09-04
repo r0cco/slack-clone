@@ -22,15 +22,15 @@ slack-clone/
     └── package.json
 ```
 
-Technologies Used
+## Technologies Used
 
-    Frontend: React, WebSockets (socket.io-client), Inline Styles.
+Frontend: React, WebSockets (socket.io-client), Inline Styles.
 
-    Backend: Node.js, Express, Socket.io, dotenv, cors.
+Backend: Node.js, Express, Socket.io, dotenv, cors.
 
-    Database: AWS RDS PostgreSQL (pg pool driver with SSL enabled).
+Database: AWS RDS PostgreSQL (pg pool driver with SSL enabled).
 
-Features Implemented
+## Features Implemented
 
     Real-Time Messaging: Socket.io room-based communication allowing instantaneous message broadcasting without polling.
 
@@ -42,8 +42,8 @@ Features Implemented
 
     Auto-Scrolling Chat: Smart scroll-to-bottom behavior using React refs as new messages stream in.
 
-Getting Started
-Prerequisites
+## Getting Started
+### Prerequisites
 
     Node.js (v14+ recommended)
 
@@ -51,11 +51,10 @@ Prerequisites
 
     Running AWS RDS PostgreSQL Instance
 
-1. Database & Environment Configuration
+# 1. Database & Environment Configuration
 
 In slack-clone-backend/, create a .env file (refer to .env.example):
-Code snippet
-
+```
 PORT=5000
 DB_HOST=your-rds-endpoint.us-east-2.rds.amazonaws.com
 DB_PORT=5432
@@ -63,24 +62,28 @@ DB_USER=postgres
 DB_PASSWORD=your_rds_password
 DB_NAME=postgres
 CLIENT_URL=http://localhost:3000
+```
 
-2. Backend Setup
+# 2. Backend Setup
 Bash
 
+```
 cd slack-clone-backend
 npm install
 npm run dev # Starts Node server with auto-reload on port 5000
+```
 
-3. Frontend Setup
+# 3. Frontend Setup
 
 Open a second terminal window:
-Bash
 
+```
 cd slack-clone-frontend
 npm install
 npm start # Starts React dev server on http://localhost:3000
+```
 
-Database Schema Overview
+## Database Schema Overview
 
     users: Contains user profiles (id, email, password_hash, display_name, avatar_url).
 
