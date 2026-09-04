@@ -1,39 +1,52 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
 
-const socket = io('http://localhost:5000');
-const MOCK_USER_ID = '11111111-1111-1111-1111-111111111111';
+let socket = null;
 
 function App() {
+  const [token, setToken] = useState(localStorage.getItem('token') || '');
+  const [user, setUser] = useState(JSON.parse(localStorage.getItem('user') || 'null'));
+
+  // Auth Form State
+  const [isRegistering, setIsRegistering] = useState(false);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [displayName, setDisplayName] = useState('');
+  const [authError, setAuthError] = useState('');
+
+  // Main Slack State
   const [channels, setChannels] = useState([]);
   const [activeChannel, setActiveChannel] = useState(null);
   const [messages, setMessages] = useState([]);
   const [inputMessage, setInputMessage] = useState('');
 
-  // Channel Modal State
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [newChannelName, setNewChannelName] = useState('');
-  const [newChannelDesc, setNewChannelDesc] = useState('');
-
-  // Thread Drawer State
-  const [activeThreadParent, setActiveThreadParent] = useState(null);
-  const [threadMessages, setThreadMessages] = useState([]);
-  const [threadInput, setThreadInput] = useState('');
-
   const messagesEndRef = useRef(null);
-  const threadEndRef = useRef(null);
 
+  // Initialize Socket connection on token available
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    if (!token) return;
 
-  useEffect(() => {
-    threadEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [threadMessages]);
+    socket = io('http://localhost:5000', {
+      auth: { token },
+    });
 
-  // Fetch channels & socket listeners
+    socket.on('connect_error', () => {
+      setAuthError('Session expired. Please log in again.');
+      handleLogout();
+    });
+
+    return () => {
+      if (socket) socket.disconnect();
+    };
+  }, [token]);
+
+  // Fetch Channels on Login
   useEffect(() => {
-    fetch('http://localhost:5000/api/channels')
+    if (!token) return;
+
+    fetch('http://localhost:5000/api/channels', {
+      headers: { Authorization: `Bearer ${token}` },
+    })
       .then((res) => res.json())
       .then((data) => {
         if (Array.isArray(data) && data.length > 0) {
@@ -41,79 +54,67 @@ function App() {
           setActiveChannel(data[0]);
         }
       });
+  }, [token]);
 
-    socket.on('channel_created', (createdChannel) => {
-      setChannels((prev) => [...prev, createdChannel]);
-    });
-
-    return () => socket.off('channel_created');
-  }, []);
-
-  // Fetch channel messages & listen for new messages / replies
+  // Fetch Channel Messages
   useEffect(() => {
-    if (!activeChannel) return;
+    if (!token || !activeChannel) return;
 
-    fetch(`http://localhost:5000/api/channels/${activeChannel.id}/messages`)
+    fetch(`http://localhost:5000/api/channels/${activeChannel.id}/messages`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
       .then((res) => res.json())
       .then((data) => setMessages(Array.isArray(data) ? data : []));
 
     socket.emit('join_channel', { newChannelId: activeChannel.id });
 
     const handleReceiveMessage = (newMessage) => {
-      if (newMessage.channel_id === activeChannel.id && !newMessage.parent_id) {
+      if (newMessage.channel_id === activeChannel.id) {
         setMessages((prev) => [...prev, newMessage]);
       }
     };
 
-    const handleReceiveReply = (newReply) => {
-      // Update thread messages if drawer is open for this parent
-      setActiveThreadParent((currentParent) => {
-        if (currentParent && currentParent.id === newReply.parent_id) {
-          setThreadMessages((prev) => [...prev, newReply]);
-        }
-        return currentParent;
-      });
-
-      // Increment parent's reply count in message stream
-      setMessages((prev) =>
-        prev.map((msg) =>
-          msg.id === newReply.parent_id
-            ? { ...msg, reply_count: (parseInt(msg.reply_count) || 0) + 1 }
-            : msg
-        )
-      );
-    };
-
     socket.on('receive_message', handleReceiveMessage);
-    socket.on('receive_thread_reply', handleReceiveReply);
+    return () => socket.off('receive_message', handleReceiveMessage);
+  }, [activeChannel, token]);
 
-    return () => {
-      socket.off('receive_message', handleReceiveMessage);
-      socket.off('receive_thread_reply', handleReceiveReply);
-    };
-  }, [activeChannel]);
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
 
-  // Open Thread Drawer
-  const handleOpenThread = (parentMessage) => {
-    setActiveThreadParent(parentMessage);
-    fetch(`http://localhost:5000/api/messages/${parentMessage.id}/replies`)
+  const handleAuthSubmit = (e) => {
+    e.preventDefault();
+    setAuthError('');
+
+    const endpoint = isRegistering ? '/api/auth/register' : '/api/auth/login';
+    const body = isRegistering
+      ? { email, password, display_name: displayName }
+      : { email, password };
+
+    fetch(`http://localhost:5000${endpoint}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
       .then((res) => res.json())
-      .then((data) => setThreadMessages(Array.isArray(data) ? data : []));
+      .then((data) => {
+        if (data.error) {
+          setAuthError(data.error);
+        } else {
+          localStorage.setItem('token', data.token);
+          localStorage.setItem('user', JSON.stringify(data.user));
+          setToken(data.token);
+          setUser(data.user);
+        }
+      })
+      .catch(() => setAuthError('Failed to connect to server'));
   };
 
-  // Send Thread Reply
-  const handleSendThreadReply = (e) => {
-    e.preventDefault();
-    if (!threadInput.trim() || !activeThreadParent) return;
-
-    socket.emit('send_message', {
-      channel_id: activeChannel.id,
-      user_id: MOCK_USER_ID,
-      content: threadInput,
-      parent_id: activeThreadParent.id,
-    });
-
-    setThreadInput('');
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    setToken('');
+    setUser(null);
   };
 
   const handleSendMessage = (e) => {
@@ -122,43 +123,85 @@ function App() {
 
     socket.emit('send_message', {
       channel_id: activeChannel.id,
-      user_id: MOCK_USER_ID,
       content: inputMessage,
-      parent_id: null,
     });
 
     setInputMessage('');
   };
 
-  const handleCreateChannel = (e) => {
-    e.preventDefault();
-    if (!newChannelName.trim()) return;
+  // Render Login / Register View
+  if (!token) {
+    return (
+      <div style={styles.authContainer}>
+        <div style={styles.authBox}>
+          <h2>{isRegistering ? 'Sign up for Slack Clone' : 'Sign in to Slack Clone'}</h2>
+          {authError && <div style={styles.errorBanner}>{authError}</div>}
 
-    fetch('http://localhost:5000/api/channels', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: newChannelName, description: newChannelDesc }),
-    })
-      .then((res) => res.json())
-      .then((createdChannel) => {
-        if (createdChannel?.id) {
-          setActiveChannel(createdChannel);
-          setIsModalOpen(false);
-          setNewChannelName('');
-          setNewChannelDesc('');
-        }
-      });
-  };
+          <form onSubmit={handleAuthSubmit}>
+            {isRegistering && (
+              <>
+                <label style={styles.label}>Display Name</label>
+                <input
+                  type="text"
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  style={styles.input}
+                  required
+                />
+              </>
+            )}
 
+            <label style={styles.label}>Email Address</label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              style={styles.input}
+              required
+            />
+
+            <label style={styles.label}>Password</label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              style={styles.input}
+              required
+            />
+
+            <button type="submit" style={styles.authButton}>
+              {isRegistering ? 'Register' : 'Sign In'}
+            </button>
+          </form>
+
+          <p style={styles.toggleText}>
+            {isRegistering ? 'Already have an account?' : "Don't have an account?"}{' '}
+            <span
+              style={styles.toggleLink}
+              onClick={() => {
+                setIsRegistering(!isRegistering);
+                setAuthError('');
+              }}
+            >
+              {isRegistering ? 'Sign In' : 'Sign Up'}
+            </span>
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // Render Main Slack View
   return (
     <div style={styles.appContainer}>
-      {/* Sidebar */}
       <div style={styles.sidebar}>
         <h3 style={styles.workspaceHeader}>Slack Workspace</h3>
-        <div style={styles.sectionHeaderRow}>
-          <span style={styles.sectionHeader}>Channels</span>
-          <button style={styles.addChannelBtn} onClick={() => setIsModalOpen(true)}>+</button>
+        <div style={styles.userInfo}>
+          <span>👤 {user?.display_name}</span>
+          <button style={styles.logoutBtn} onClick={handleLogout}>Logout</button>
         </div>
+
+        <div style={styles.sectionHeader}>Channels</div>
         {channels.map((ch) => (
           <div
             key={ch.id}
@@ -166,38 +209,25 @@ function App() {
               ...styles.channelItem,
               backgroundColor: activeChannel?.id === ch.id ? '#1164A3' : 'transparent',
             }}
-            onClick={() => {
-              setActiveChannel(ch);
-              setActiveThreadParent(null);
-            }}
+            onClick={() => setActiveChannel(ch)}
           >
             # {ch.name}
           </div>
         ))}
       </div>
 
-      {/* Main Chat Stream */}
       <div style={styles.chatArea}>
         <div style={styles.chatHeader}>
-          <h3>#{activeChannel ? activeChannel.name : ''}</h3>
+          <h3>#{activeChannel?.name || 'Loading...'}</h3>
         </div>
 
         <div style={styles.messageList}>
-          {messages.map((msg) => (
-            <div key={msg.id} style={styles.messageCard}>
+          {messages.map((msg, index) => (
+            <div key={msg.id || index} style={styles.messageCard}>
               <div style={styles.avatar}>{msg.display_name?.[0]?.toUpperCase() || 'U'}</div>
-              <div style={{ flex: 1 }}>
-                <div style={styles.messageMeta}>
-                  <strong>{msg.display_name || 'User'}</strong>
-                </div>
+              <div>
+                <strong>{msg.display_name || 'User'}</strong>
                 <div style={styles.messageText}>{msg.content}</div>
-
-                {/* Reply / Thread Trigger */}
-                <div style={styles.threadFooter}>
-                  <button style={styles.replyButton} onClick={() => handleOpenThread(msg)}>
-                    💬 {msg.reply_count > 0 ? `${msg.reply_count} replies` : 'Reply in thread'}
-                  </button>
-                </div>
               </div>
             </div>
           ))}
@@ -215,131 +245,36 @@ function App() {
           <button type="submit" style={styles.sendButton}>Send</button>
         </form>
       </div>
-
-      {/* Thread Slide-out Drawer */}
-      {activeThreadParent && (
-        <div style={styles.threadDrawer}>
-          <div style={styles.drawerHeader}>
-            <div>
-              <h3 style={{ margin: 0 }}>Thread</h3>
-              <small style={{ color: '#616061' }}>#{activeChannel?.name}</small>
-            </div>
-            <button style={styles.closeDrawerBtn} onClick={() => setActiveThreadParent(null)}>
-              ✕
-            </button>
-          </div>
-
-          <div style={styles.drawerBody}>
-            {/* Parent Message Header */}
-            <div style={styles.parentMessageCard}>
-              <div style={styles.avatar}>
-                {activeThreadParent.display_name?.[0]?.toUpperCase() || 'U'}
-              </div>
-              <div>
-                <strong>{activeThreadParent.display_name || 'User'}</strong>
-                <div style={styles.messageText}>{activeThreadParent.content}</div>
-              </div>
-            </div>
-
-            <div style={styles.threadDivider}>
-              <span>{threadMessages.length} replies</span>
-            </div>
-
-            {/* Thread Replies Stream */}
-            {threadMessages.map((reply) => (
-              <div key={reply.id} style={styles.messageCard}>
-                <div style={styles.avatar}>{reply.display_name?.[0]?.toUpperCase() || 'U'}</div>
-                <div>
-                  <strong>{reply.display_name || 'User'}</strong>
-                  <div style={styles.messageText}>{reply.content}</div>
-                </div>
-              </div>
-            ))}
-            <div ref={threadEndRef} />
-          </div>
-
-          <form onSubmit={handleSendThreadReply} style={styles.inputContainer}>
-            <input
-              type="text"
-              value={threadInput}
-              onChange={(e) => setThreadInput(e.target.value)}
-              placeholder="Reply..."
-              style={styles.inputField}
-            />
-            <button type="submit" style={styles.sendButton}>Reply</button>
-          </form>
-        </div>
-      )}
-
-      {/* Create Channel Modal */}
-      {isModalOpen && (
-        <div style={styles.modalOverlay}>
-          <div style={styles.modalContent}>
-            <h3>Create a Channel</h3>
-            <form onSubmit={handleCreateChannel}>
-              <input
-                type="text"
-                value={newChannelName}
-                onChange={(e) => setNewChannelName(e.target.value)}
-                placeholder="Channel Name"
-                style={styles.modalInput}
-                required
-              />
-              <input
-                type="text"
-                value={newChannelDesc}
-                onChange={(e) => setNewChannelDesc(e.target.value)}
-                placeholder="Description"
-                style={styles.modalInput}
-              />
-              <div style={styles.modalActions}>
-                <button type="button" onClick={() => setIsModalOpen(false)} style={styles.cancelBtn}>
-                  Cancel
-                </button>
-                <button type="submit" style={styles.createBtn}>Create</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
 
 const styles = {
+  authContainer: { display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center', backgroundColor: '#F8F8F8', fontFamily: 'Arial, sans-serif' },
+  authBox: { backgroundColor: '#FFF', padding: '30px', borderRadius: '8px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', width: '350px' },
+  label: { display: 'block', fontSize: '12px', fontWeight: 'bold', marginBottom: '4px', marginTop: '12px' },
+  input: { width: '100%', padding: '10px', border: '1px solid #CCC', borderRadius: '4px', fontSize: '14px', boxSizing: 'border-box' },
+  authButton: { width: '100%', backgroundColor: '#4A154B', color: '#FFF', border: 'none', padding: '10px', borderRadius: '4px', fontWeight: 'bold', marginTop: '20px', cursor: 'pointer' },
+  errorBanner: { backgroundColor: '#FADBD8', color: '#78281F', padding: '8px', borderRadius: '4px', fontSize: '12px', marginBottom: '10px' },
+  toggleText: { fontSize: '12px', textAlign: 'center', marginTop: '15px' },
+  toggleLink: { color: '#1264A3', cursor: 'pointer', fontWeight: 'bold' },
+  // App styles
   appContainer: { display: 'flex', height: '100vh', fontFamily: 'Arial, sans-serif' },
   sidebar: { width: '220px', backgroundColor: '#3F0E40', color: '#FFFFFF', padding: '15px' },
   workspaceHeader: { borderBottom: '1px solid #522653', paddingBottom: '10px', marginTop: 0 },
-  sectionHeaderRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '15px 0 5px 0' },
-  sectionHeader: { fontSize: '12px', color: '#9D83A0', textTransform: 'uppercase' },
-  addChannelBtn: { backgroundColor: 'transparent', color: '#9D83A0', border: 'none', fontSize: '18px', cursor: 'pointer', fontWeight: 'bold' },
+  userInfo: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', marginBottom: '15px' },
+  logoutBtn: { backgroundColor: 'transparent', border: '1px solid #9D83A0', color: '#FFF', borderRadius: '4px', fontSize: '10px', cursor: 'pointer' },
+  sectionHeader: { fontSize: '12px', color: '#9D83A0', margin: '15px 0 5px 0', textTransform: 'uppercase' },
   channelItem: { padding: '6px 10px', borderRadius: '6px', cursor: 'pointer', marginBottom: '2px' },
   chatArea: { flex: 1, display: 'flex', flexDirection: 'column', backgroundColor: '#FFFFFF' },
   chatHeader: { borderBottom: '1px solid #E2E2E2', padding: '0 20px', height: '50px', display: 'flex', alignItems: 'center' },
   messageList: { flex: 1, padding: '20px', overflowY: 'auto' },
   messageCard: { display: 'flex', gap: '12px', marginBottom: '16px' },
   avatar: { width: '36px', height: '36px', borderRadius: '4px', backgroundColor: '#611B66', color: '#FFF', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' },
-  messageMeta: { display: 'flex', gap: '8px', alignItems: 'baseline', marginBottom: '4px' },
   messageText: { color: '#1D1C1D', lineHeight: '1.4' },
-  threadFooter: { marginTop: '6px' },
-  replyButton: { backgroundColor: 'transparent', border: 'none', color: '#1264A3', cursor: 'pointer', fontSize: '12px', padding: 0, fontWeight: 'bold' },
-  inputContainer: { padding: '15px 20px', display: 'flex', gap: '10px', borderTop: '1px solid #E2E2E2' },
-  inputField: { flex: 1, padding: '10px', border: '1px solid #868686', borderRadius: '4px', fontSize: '14px' },
-  sendButton: { backgroundColor: '#007A5A', color: '#FFF', border: 'none', padding: '0 16px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' },
-  // Drawer Styles
-  threadDrawer: { width: '360px', borderLeft: '1px solid #E2E2E2', display: 'flex', flexDirection: 'column', backgroundColor: '#FFFFFF' },
-  drawerHeader: { height: '50px', borderBottom: '1px solid #E2E2E2', padding: '0 15px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
-  closeDrawerBtn: { background: 'none', border: 'none', fontSize: '18px', cursor: 'pointer', color: '#616061' },
-  drawerBody: { flex: 1, padding: '15px', overflowY: 'auto' },
-  parentMessageCard: { display: 'flex', gap: '12px', paddingBottom: '12px' },
-  threadDivider: { borderBottom: '1px solid #E2E2E2', color: '#616061', fontSize: '12px', margin: '15px 0', textAlign: 'center', lineHeight: '0.1em' },
-  // Modal styles
-  modalOverlay: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 },
-  modalContent: { backgroundColor: '#FFF', width: '380px', borderRadius: '8px', padding: '24px' },
-  modalInput: { width: '100%', padding: '10px', border: '1px solid #868686', borderRadius: '4px', fontSize: '14px', marginBottom: '12px', boxSizing: 'border-box' },
-  modalActions: { display: 'flex', justifyContent: 'flex-end', gap: '10px' },
-  cancelBtn: { padding: '8px 16px', border: '1px solid #DDDDDD', borderRadius: '4px', backgroundColor: '#FFF', cursor: 'pointer' },
-  createBtn: { padding: '8px 16px', border: 'none', borderRadius: '4px', backgroundColor: '#007A5A', color: '#FFF', cursor: 'pointer' },
+  inputContainer: { padding: '20px', display: 'flex', gap: '10px' },
+  inputField: { flex: 1, padding: '12px', border: '1px solid #868686', borderRadius: '4px', fontSize: '14px' },
+  sendButton: { backgroundColor: '#007A5A', color: '#FFF', border: 'none', padding: '0 20px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' },
 };
 
 export default App;
