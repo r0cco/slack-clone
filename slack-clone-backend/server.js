@@ -16,27 +16,29 @@ const io = new Server(server, {
   cors: { origin: process.env.CLIENT_URL || 'http://localhost:3000' }
 });
 
-const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret';
+const JWT_SECRET = process.env.JWT_SECRET || 'your_access_secret_key';
 
 // Auth Middleware for Express
-const authenticateToken = (req, res, next) => {
+function authenticateToken(req, res, next) {
   const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
+  const token = authHeader && authHeader.split(' ')[1]; // Extract token from "Bearer <TOKEN>"
 
-  if (!token) return res.status(401).json({ error: 'Access token required' });
+  if (!token) return res.status(401).json({ error: 'Token missing' });
 
   jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) return res.status(403).json({ error: 'Invalid or expired token' });
+    if (err) {
+      console.error('JWT Verification Error:', err.message);
+      return res.status(401).json({ error: 'Invalid or expired token' });
+    }
     req.user = user;
     next();
   });
-};
+}
 
 const {
   hashToken,
   generateAccessToken,
   generateAndSaveRefreshToken,
-  ACCESS_SECRET,
   REFRESH_SECRET,
 } = require('./authHelpers');
 
@@ -72,9 +74,10 @@ app.post('/api/auth/register', async (req, res) => {
     );
 
     const newUser = result.rows[0];
-    const token = jwt.sign({ id: newUser.id, email: newUser.email }, JWT_SECRET, { expiresIn: '7d' });
+    const accessToken = generateAccessToken(newUser);
+    const refreshToken = await generateAndSaveRefreshToken(newUser);
 
-    res.status(201).json({ user: newUser, token });
+    res.status(201).json({ user: newUser, accessToken, refreshToken });
   } catch (err) {
     console.error('Registration error:', err.message);
     res.status(500).json({ error: 'Server error during registration' });
@@ -106,10 +109,11 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(400).json({ error: 'Invalid email or password' });
     }
 
-    const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
+    const accessToken = generateAccessToken(user);
+    const refreshToken = await generateAndSaveRefreshToken(user);
 
     delete user.password_hash;
-    res.json({ user, token });
+    res.json({ user, accessToken, refreshToken });
   } catch (err) {
     console.error('Login error:', err.message);
     res.status(500).json({ error: 'Server error during login' });

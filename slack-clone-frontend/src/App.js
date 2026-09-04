@@ -3,9 +3,17 @@ import { io } from 'socket.io-client';
 import { fetchWithAuth } from './api';
 
 let socket = null;
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+const storedToken = localStorage.getItem('accessToken') || localStorage.getItem('token') || '';
+const initialToken = storedToken.split('.').length === 3 ? storedToken : '';
+
+if (storedToken && !initialToken) {
+  localStorage.removeItem('accessToken');
+  localStorage.removeItem('token');
+}
 
 function App() {
-  const [token, setToken] = useState(localStorage.getItem('token') || '');
+  const [token, setToken] = useState(initialToken);
   const [user, setUser] = useState(JSON.parse(localStorage.getItem('user') || 'null'));
 
   // Auth Form State
@@ -27,7 +35,7 @@ function App() {
   useEffect(() => {
     if (!token) return;
 
-    socket = io('http://localhost:5000', {
+    socket = io(API_URL, {
       auth: { token },
     });
 
@@ -45,7 +53,7 @@ function App() {
   useEffect(() => {
     if (!token) return;
 
-    fetchWithAuth('http://localhost:5000/api/channels', {
+    fetchWithAuth(`${API_URL}/api/channels`, {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then((res) => res.json())
@@ -61,7 +69,7 @@ function App() {
   useEffect(() => {
     if (!token || !activeChannel) return;
 
-    fetchWithAuth(`http://localhost:5000/api/channels/${activeChannel.id}/messages`, {
+    fetchWithAuth(`${API_URL}/api/channels/${activeChannel.id}/messages`, {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then((res) => res.json())
@@ -92,7 +100,7 @@ function App() {
       ? { email, password, display_name: displayName }
       : { email, password };
 
-    fetchWithAuth(`http://localhost:5000${endpoint}`, {
+    fetch(`${API_URL}${endpoint}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -102,9 +110,11 @@ function App() {
         if (data.error) {
           setAuthError(data.error);
         } else {
-          localStorage.setItem('token', data.token);
+          localStorage.setItem('accessToken', data.accessToken);
+          if (data.refreshToken) localStorage.setItem('refreshToken', data.refreshToken);
+          localStorage.removeItem('token');
           localStorage.setItem('user', JSON.stringify(data.user));
-          setToken(data.token);
+          setToken(data.accessToken);
           setUser(data.user);
         }
       })
@@ -112,6 +122,8 @@ function App() {
   };
 
   const handleLogout = () => {
+    localStorage.removeItem('accessToken');
+    localStorage.removeItem('refreshToken');
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     setToken('');

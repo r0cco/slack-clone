@@ -1,8 +1,9 @@
+require('dotenv').config();
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const pool = require('./db');
 
-const ACCESS_SECRET = process.env.JWT_SECRET || 'access_secret';
+const ACCESS_SECRET = process.env.JWT_SECRET || 'your_access_secret_key';
 const REFRESH_SECRET = process.env.REFRESH_SECRET || 'refresh_secret';
 
 // Hash token helper using SHA256

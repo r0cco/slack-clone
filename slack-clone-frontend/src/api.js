@@ -1,7 +1,24 @@
 // slack-clone-frontend/src/api.js
 
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+
 export async function fetchWithAuth(url, options = {}) {
-  let accessToken = localStorage.getItem('accessToken');
+  let accessToken = localStorage.getItem('accessToken') || localStorage.getItem('token');
+
+  // Prevent sending 'undefined' or 'null' as a string token
+  if (
+    !accessToken ||
+    accessToken === 'undefined' ||
+    accessToken === 'null' ||
+    accessToken.split('.').length !== 3
+  ) {
+    console.warn('No valid access token found in localStorage.');
+    localStorage.clear();
+    window.location.reload();
+    return;
+  }
+
+  localStorage.setItem('accessToken', accessToken);
 
   options.headers = {
     ...options.headers,
@@ -21,7 +38,7 @@ export async function fetchWithAuth(url, options = {}) {
       throw new Error('No refresh token available');
     }
 
-    const refreshRes = await fetch('http://localhost:5000/api/auth/refresh', {
+    const refreshRes = await fetch(`${API_URL}/api/auth/refresh`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ refreshToken }),

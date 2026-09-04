@@ -2,7 +2,6 @@
 require('dotenv').config();
 const { Pool } = require('pg');
 
-// Verification log to see exactly what Node is reading from .env
 console.log('🔍 Connecting with config:', {
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
