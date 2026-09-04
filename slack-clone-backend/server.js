@@ -95,45 +95,50 @@ io.on('connection', (socket) => {
 
   // 2. Handle incoming real-time messages
   socket.on('send_message', async (data) => {
-    const { channel_id, user_id, content, parent_id } = data;
+  const { channel_id, user_id, content, parent_id } = data;
 
-    try {
-      // Step A: Save message to PostgreSQL
-      const query = `
-        INSERT INTO messages (channel_id, user_id, content, parent_id)
-        VALUES ($1, $2, $3, $4)
-        RETURNING *;
-      `;
-      const values = [channel_id, user_id, content, parent_id || null];
-      const result = await pool.query(query, values);
-      const savedMessage = result.rows[0];
+  try {
+    // A. Insert reply or main message
+    const insertResult = await pool.query(
+      `INSERT INTO messages (channel_id, user_id, content, parent_id)
+       VALUES ($1, $2, $3, $4)
+       RETURNING *`,
+      [channel_id, user_id, content, parent_id || null]
+    );
 
-      // Step B: Update reply_count if it is a threaded reply
-      if (parent_id) {
-        await pool.query(
-          'UPDATE messages SET reply_count = reply_count + 1 WHERE id = $1',
-          [parent_id]
-        );
-      }
+    const messageId = insertResult.rows[0].id;
 
-      // Step C: Fetch user display metadata to include in live message frame
-      const userRes = await pool.query(
-        'SELECT display_name, avatar_url FROM users WHERE id = $1',
-        [user_id]
+    // B. Fetch message joined with user display details
+    const fullMessageResult = await pool.query(
+      `SELECT m.id, m.channel_id, m.user_id, m.content, m.parent_id, m.reply_count, m.created_at,
+              u.display_name, u.avatar_url
+       FROM messages m
+       JOIN users u ON m.user_id = u.id
+       WHERE m.id = $1`,
+      [messageId]
+    );
+
+    const savedMessage = fullMessageResult.rows[0];
+
+    // C. If it's a thread reply, update parent's reply count
+    if (parent_id) {
+      await pool.query(
+        `UPDATE messages 
+         SET reply_count = COALESCE(reply_count, 0) + 1 
+         WHERE id = $1`,
+        [parent_id]
       );
-      if (userRes.rows.length > 0) {
-        savedMessage.display_name = userRes.rows[0].display_name;
-        savedMessage.avatar_url = userRes.rows[0].avatar_url;
-      }
 
-      // Step D: Broadcast message to everyone in the channel
-      io.to(channel_id).emit('receive_message', savedMessage);
-
-    } catch (err) {
-      console.error('Error saving message:', err.message);
-      socket.emit('error', 'Failed to send message');
+      // Broadcast thread reply event
+      io.to(`channel_${channel_id}`).emit('receive_thread_reply', savedMessage);
+    } else {
+      // Broadcast channel message event
+      io.to(`channel_${channel_id}`).emit('receive_message', savedMessage);
     }
-  });
+  } catch (err) {
+    console.error('Error handling send_message:', err.message);
+  }
+});
 
   // 3. Typing indicator
   socket.on('typing', ({ channel_id, username }) => {
@@ -210,6 +215,28 @@ app.post('/api/channels', async (req, res) => {
   } catch (err) {
     console.error('Error creating channel:', err.message);
     res.status(500).json({ error: 'Failed to create channel' });
+  }
+});
+
+// Get thread replies for a specific message
+app.get('/api/messages/:messageId/replies', async (req, res) => {
+  const { messageId } = req.params;
+
+  try {
+    const result = await pool.query(
+      `SELECT m.id, m.channel_id, m.user_id, m.content, m.parent_id, m.created_at,
+              u.display_name, u.avatar_url
+       FROM messages m
+       JOIN users u ON m.user_id = u.id
+       WHERE m.parent_id = $1
+       ORDER BY m.created_at ASC`,
+      [messageId]
+    );
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error fetching thread replies:', err.message);
+    res.status(500).json({ error: 'Failed to fetch thread replies' });
   }
 });
 
