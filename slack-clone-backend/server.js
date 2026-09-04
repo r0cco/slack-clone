@@ -178,6 +178,41 @@ app.get('/api/channels/:channelId/messages', async (req, res) => {
   }
 });
 
+// Create a new channel
+app.post('/api/channels', async (req, res) => {
+  const { name, description } = req.value || req.body;
+
+  if (!name || !name.trim()) {
+    return res.status(400).json({ error: 'Channel name is required' });
+  }
+
+  // Format channel name to lowercase slack style (e.g. "Dev Discussion" -> "dev-discussion")
+  const formattedName = name
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9-]/g, '');
+
+  try {
+    const result = await pool.query(
+      `INSERT INTO channels (name, description)
+       VALUES ($1, $2)
+       RETURNING *`,
+      [formattedName, description || '']
+    );
+
+    const newChannel = result.rows[0];
+
+    // Broadcast new channel to all connected socket clients in real-time
+    io.emit('channel_created', newChannel);
+
+    res.status(201).json(newChannel);
+  } catch (err) {
+    console.error('Error creating channel:', err.message);
+    res.status(500).json({ error: 'Failed to create channel' });
+  }
+});
+
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
