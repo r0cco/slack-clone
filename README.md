@@ -32,24 +32,24 @@ Database: AWS RDS PostgreSQL (pg pool driver with SSL enabled).
 
 ## Features Implemented
 
-    Real-Time Messaging: Socket.io room-based communication allowing instantaneous message broadcasting without polling.
+Real-Time Messaging: Socket.io room-based communication allowing instantaneous message broadcasting without polling.
 
-    Database Persistence: Real-time messages are stored in AWS RDS PostgreSQL tables (users, channels, messages).
+Database Persistence: Real-time messages are stored in AWS RDS PostgreSQL tables (users, channels, messages).
 
-    Dynamic Channel Switching: Users can switch between channels (#general, #random, #tech-talk). The app leaves the prior Socket room, joins the new one, and retrieves historical messages from PostgreSQL.
+Dynamic Channel Switching: Users can switch between channels (#general, #random, #tech-talk). The app leaves the prior Socket room, joins the new one, and retrieves historical messages from PostgreSQL.
 
-    Automatic Schema Initialization: Startup auto-migration in server.js verifies and creates required tables and seed channels if they do not exist.
+Automatic Schema Initialization: Startup auto-migration in server.js verifies and creates required tables and seed channels if they do not exist.
 
-    Auto-Scrolling Chat: Smart scroll-to-bottom behavior using React refs as new messages stream in.
+Auto-Scrolling Chat: Smart scroll-to-bottom behavior using React refs as new messages stream in.
 
 ## Getting Started
 ### Prerequisites
 
-    Node.js (v14+ recommended)
+Node.js (v14+ recommended)
 
-    npm or yarn
+npm or yarn
 
-    Running AWS RDS PostgreSQL Instance
+Running AWS RDS PostgreSQL Instance
 
 # 1. Database & Environment Configuration
 
@@ -65,7 +65,7 @@ CLIENT_URL=http://localhost:3000
 ```
 
 # 2. Backend Setup
-Bash
+Bash:
 
 ```
 cd slack-clone-backend
@@ -85,8 +85,8 @@ npm start # Starts React dev server on http://localhost:3000
 
 ## Database Schema Overview
 
-    users: Contains user profiles (id, email, password_hash, display_name, avatar_url).
+users: Contains user profiles (id, email, password_hash, display_name, avatar_url).
 
-    channels: Workspace channels (id, name, description).
+channels: Workspace channels (id, name, description).
 
-    messages: Message entries mapped to channels and users (id, channel_id, user_id, content, parent_id, reply_count, created_at).
+messages: Message entries mapped to channels and users (id, channel_id, user_id, content, parent_id, reply_count, created_at).
