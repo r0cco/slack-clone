@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
+import { fetchWithAuth } from './api';
 
 let socket = null;
 
@@ -44,7 +45,7 @@ function App() {
   useEffect(() => {
     if (!token) return;
 
-    fetch('http://localhost:5000/api/channels', {
+    fetchWithAuth('http://localhost:5000/api/channels', {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then((res) => res.json())
@@ -60,7 +61,7 @@ function App() {
   useEffect(() => {
     if (!token || !activeChannel) return;
 
-    fetch(`http://localhost:5000/api/channels/${activeChannel.id}/messages`, {
+    fetchWithAuth(`http://localhost:5000/api/channels/${activeChannel.id}/messages`, {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then((res) => res.json())
@@ -91,7 +92,7 @@ function App() {
       ? { email, password, display_name: displayName }
       : { email, password };
 
-    fetch(`http://localhost:5000${endpoint}`, {
+    fetchWithAuth(`http://localhost:5000${endpoint}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
